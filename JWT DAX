@@ -1,0 +1,41 @@
+(accessToken as text, optional startDate as text, optional endDate as text, optional continuationToken as text, optional loop as number, optional data as list) =>
+let
+Source = Json.Document(Web.Contents("https://api.powerbi.com/v1.0/myorg/",
+[
+RelativePath=if loop = 0
+then "admin/activityevents?startDateTime=" & startDate & "&endDateTime=" & endDate
+else "admin/activityevents?continuationToken='" & continuationToken & "'", 
+Headers=[Authorization="Bearer " & accessToken]
+]
+)),
+token = Source[continuationToken],
+currentData = Source[activityEventEntities],
+appendedData = List.Combine({data, currentData}),
+loopNum = loop + 1,
+output = 
+if token is null or loopNum > 100
+then appendedData
+else @#"GET Activity"(accessToken, "", "", token, loopNum, appendedData)
+in
+output
+
+
+
+let
+Source = List.Dates,
+#"Invoked FunctionSource" = Source(Date.AddDays(DateTime.Date(DateTime.FixedLocalNow()), -3), 3, #duration(1, 0, 0, 0)),
+#"Converted to Table" = Table.FromList(#"Invoked FunctionSource", Splitter.SplitByNothing(), null, null, ExtraValues.Error),
+#"Renamed Columns" = Table.RenameColumns(#"Converted to Table",{{"Column1", "Date"}}),
+#"Added Custom" = Table.AddColumn(#"Renamed Columns", "StartDate", each "'"
+& Date.ToText([Date], "YYYY-MM-DD")
+& "T00:00:00.000Z"
+& "'"),
+#"Added Custom1" = Table.AddColumn(#"Added Custom", "EndDate", each "'"
+& Date.ToText([Date], "YYYY-MM-DD")
+& "T23:59:59.999Z"
+& "'"),
+#"Invoked Custom Function" = Table.AddColumn(#"Added Custom1", "GETActivity", each #"GET Activity"(#"GET Access Token"(), [StartDate], [EndDate], null, 0, {})),
+#"Expanded GETActivity" = Table.ExpandListColumn(#"Invoked Custom Function", "GETActivity"),
+#"Expanded GETActivity1" = Table.ExpandRecordColumn(#"Expanded GETActivity", "GETActivity", {"Id", "RecordType", "CreationTime", "Operation", "OrganizationId", "UserType", "UserKey", "Workload", "UserId", "ClientIP", "UserAgent", "Activity", "ItemName", "WorkSpaceName", "DatasetName", "ReportName", "WorkspaceId", "ObjectId", "DatasetId", "ReportId", "IsSuccess", "ReportType", "RequestId", "ActivityId", "DistributionMethod", "ImportId", "ImportSource", "ImportType", "ImportDisplayName"}, {"Id", "RecordType", "CreationTime", "Operation", "OrganizationId", "UserType", "UserKey", "Workload", "UserId", "ClientIP", "UserAgent", "Activity", "ItemName", "WorkSpaceName", "DatasetName", "ReportName", "WorkspaceId", "ObjectId", "DatasetId", "ReportId", "IsSuccess", "ReportType", "RequestId", "ActivityId", "DistributionMethod", "ImportId", "ImportSource", "ImportType", "ImportDisplayName"}),
+#"Filtered Rows" = Table.SelectRows(#"Expanded GETActivity1", each ([Id] <> null) and ([Operation] <> "ExportActivityEvents" and [Operation] <> "GetGroupsAsAdmin"))
+in #"Filtered Rows"
